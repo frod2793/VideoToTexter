@@ -1,0 +1,52 @@
+using Avalonia;
+using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Data.Core;
+using Avalonia.Data.Core.Plugins;
+using System.Linq;
+using Avalonia.Markup.Xaml;
+using VideoToText.Avalonia.ViewModels;
+using VideoToText.Avalonia.Views;
+
+namespace VideoToText.Avalonia;
+
+public partial class App : global::Avalonia.Application
+{
+    public override void Initialize()
+    {
+        AvaloniaXamlLoader.Load(this);
+    }
+
+    public override void OnFrameworkInitializationCompleted()
+    {
+        // 1. 서비스 구성 초기화
+        ServiceConfigurator.ConfigureServices();
+
+        if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
+        {
+            // Avoid duplicate validations from both Avalonia and the CommunityToolkit. 
+            // More info: https://docs.avaloniaui.net/docs/guides/development-guides/data-validation#manage-validationplugins
+            DisableAvaloniaDataAnnotationValidation();
+
+            // 2. DI 컨테이너로부터 ViewModel 주입
+            desktop.MainWindow = new MainWindow
+            {
+                DataContext = ServiceConfigurator.GetService<MainWindowViewModel>(),
+            };
+        }
+
+        base.OnFrameworkInitializationCompleted();
+    }
+
+    private void DisableAvaloniaDataAnnotationValidation()
+    {
+        // Get an array of plugins to remove
+        var dataValidationPluginsToRemove =
+            BindingPlugins.DataValidators.OfType<DataAnnotationsValidationPlugin>().ToArray();
+
+        // remove each entry found
+        foreach (var plugin in dataValidationPluginsToRemove)
+        {
+            BindingPlugins.DataValidators.Remove(plugin);
+        }
+    }
+}
