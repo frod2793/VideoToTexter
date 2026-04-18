@@ -3,6 +3,7 @@ using Avalonia.Interactivity;
 using Avalonia.Platform.Storage;
 using System.Linq;
 using VideoToText.Avalonia.ViewModels;
+using VideoToText.Core;
 
 namespace VideoToText.Avalonia.Views;
 
@@ -20,10 +21,10 @@ public partial class MainWindow : Window
 
         var files = await topLevel.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
-            Title = "변환할 영상 파일 선택",
-            AllowMultiple = false,
+            Title = "변환할 영상 파일들 선택",
+            AllowMultiple = true,
             FileTypeFilter = new[] { 
-                new FilePickerFileType("비디오 파일") { Patterns = new[] { "*.mp4", "*.mkv", "*.mov", "*.avi", "*.mp3", "*.wav" } }
+                new FilePickerFileType("미디어 파일") { Patterns = new[] { "*.mp4", "*.mkv", "*.mov", "*.avi", "*.mp3", "*.wav", "*.m4a" } }
             }
         });
 
@@ -31,8 +32,13 @@ public partial class MainWindow : Window
         {
             if (DataContext is MainWindowViewModel vm)
             {
-                vm.VideoPath = files[0].Path.LocalPath;
-                vm.Status = "영상 선택됨: " + System.IO.Path.GetFileName(vm.VideoPath);
+                foreach (var file in files)
+                {
+                    var path = file.Path.LocalPath;
+                    vm.AddFileToQueue(path);
+                }
+                
+                vm.Status = $"{files.Count}개의 파일이 대기열에 추가되었습니다.";
             }
         }
     }
