@@ -10,24 +10,22 @@ namespace VideoToText.Infrastructure
     {
         public async Task<bool> ExtractAudioAsync(string videoFilePath, string outputAudioPath, TimeSpan? startTime = null, TimeSpan? duration = null)
         {
-            try
-            {
-                if (!File.Exists(videoFilePath)) throw new FileNotFoundException("원본 동영상 파일을 찾을 수 없습니다.");
-                if (File.Exists(outputAudioPath)) File.Delete(outputAudioPath);
+            if (!File.Exists(videoFilePath)) throw new FileNotFoundException("원본 동영상 파일을 찾을 수 없습니다.", videoFilePath);
+            if (File.Exists(outputAudioPath)) File.Delete(outputAudioPath);
 
-                string ssOption = startTime.HasValue ? $"-ss {startTime.Value:hh\\:mm\\:ss\\.fff}" : "";
-                string tOption = duration.HasValue ? $"-t {duration.Value:hh\\:mm\\:ss\\.fff}" : "";
-
-                string arguments = $"{ssOption} -i \"{videoFilePath}\" {tOption} -ar 16000 -ac 1 -c:a pcm_s16le \"{outputAudioPath}\"";
-                
-                var conversion = await FFmpeg.Conversions.New().Start(arguments);
-                return File.Exists(outputAudioPath);
-            }
-            catch (Exception ex)
+            string? dir = Path.GetDirectoryName(outputAudioPath);
+            if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
             {
-                Console.WriteLine($"[오디오 추출 오류]: {ex.Message}");
-                return false;
+                Directory.CreateDirectory(dir);
             }
+
+            string ssOption = startTime.HasValue ? $"-ss {startTime.Value:hh\\:mm\\:ss\\.fff}" : "";
+            string tOption = duration.HasValue ? $"-t {duration.Value:hh\\:mm\\:ss\\.fff}" : "";
+
+            string arguments = $"{ssOption} -i \"{videoFilePath}\" {tOption} -ar 16000 -ac 1 -c:a pcm_s16le \"{outputAudioPath}\"";
+
+            var conversion = await FFmpeg.Conversions.New().Start(arguments);
+            return File.Exists(outputAudioPath);
         }
     }
 }

@@ -12,7 +12,7 @@
 **비디오 텍스터**는 영상 파일에서 음성을 추출하고, OpenAI Whisper AI 모델을 사용하여 텍스트(자막)로 변환하는 **macOS 네이티브 데스크톱 앱**입니다.
 
 ### 핵심 가치
-- **완전 독립 실행**: FFmpeg, Whisper 모델 등 모든 의존성을 앱 내부에 포함
+- **독립 실행 런타임**: FFmpeg와 Whisper 네이티브 런타임을 앱 번들에 포함
 - **로컬 처리**: 외부 서버 없이 사용자 로컬 장비에서 모든 작업을 완료
 - **간편한 UX**: 파일 선택 → 모델 선택 → 변환 시작, 3단계로 완료
 
@@ -57,6 +57,8 @@
 | **다운로드 소스** | HuggingFace (`ggerganov/whisper.cpp`) |
 | **상태 표시** | `[다운로드됨]` / `[미다운로드]` 실시간 표시 |
 | **즉시 갱신** | 다운로드 완료 즉시 UI에 상태 반영 |
+| **저장 위치** | 새 GGUF 모델은 `LocalApplicationData/VideoTexter/Models`에 저장 |
+| **호환성** | 앱 번들의 legacy `Models`는 읽기 전용 폴백이며, 새 다운로드를 그곳에 쓰지 않음 |
 
 #### 지원 모델 목록
 
@@ -79,6 +81,9 @@
 | **오디오 추출** | FFmpeg를 사용하여 영상에서 WAV 오디오 추출 |
 | **인식 엔진** | Whisper.net (C# 네이티브 바인딩) |
 | **Metal 가속** | macOS Metal 충돌 방지를 위해 `GGML_METAL=0`으로 CPU 기반 추론 |
+| **실행 방식** | 작업 등록 시 선택 모델과 출력 위치를 고정하고, `시작` 뒤 대기열에서 한 작업씩 순차 실행 |
+| **일시정지** | 현재 작업은 완료시키고 다음 작업 시작 전에 적용 |
+| **출력 충돌** | 기존 `.srt` 또는 `.txt`는 보존하며 해당 작업을 실패 상태로 표시 |
 
 ### 3.5. 진행률 및 ETA 표시
 
@@ -130,6 +135,7 @@ VideoToText/                        ← 솔루션 루트
 │   │   ├── SrtSubtitleExporter.cs
 │   │   └── PlainTextExporter.cs
 │   └── Application/                ← 비즈니스 로직
+│       ├── JobQueueManager.cs        ← Start/Pause 게이트와 순차 실행
 │       └── VideoToTextApp.cs
 │
 └── VideoToText.Avalonia/           ← 데스크톱 UI 앱 (.NET 8.0 / Avalonia 11)
@@ -146,7 +152,6 @@ VideoToText/                        ← 솔루션 루트
     │           └── MacOS/
     │               ├── VideoToText.Avalonia  ← 실행 파일
     │               ├── ffmpeg               ← 내장 FFmpeg
-    │               └── Models/              ← Whisper 모델 저장소
     └── VideoToText.Avalonia.csproj
 ```
 
@@ -208,3 +213,16 @@ chmod +x VideoToText.Avalonia/Publish/VideoTexter.app/Contents/MacOS/ffmpeg
 ```
 VideoToText.Avalonia/Publish/VideoTexter.app
 ```
+
+---
+
+## 6. 음성 파일과 마이크 입력
+
+- 기존 영상 가져오기와 함께 `.mp3`, `.m4a`, `.wav` 음성 파일을 대기열에 추가할 수 있다.
+- 마이크는 시스템 기본 장치 또는 사용자가 선택한 장치를 사용하며, 사용자 선택 출력 폴더에 `녹음_yyyyMMdd_HHmmss.m4a` 형식으로 저장한다. 기존 파일은 덮어쓰지 않는다.
+- FFmpeg `avfoundation` 입력과 AAC 128k/IPod(M4A) 출력으로 녹음한다. 정상 중지로 확정된 파일만 기존 대기열에 등록하며, 등록만 하고 변환을 자동 시작하지 않는다.
+- macOS 번들은 `NSMicrophoneUsageDescription`으로 마이크 사용 목적을 제공한다.
+
+### 미지원 범위
+
+실시간 변환, 파형 표시, 오디오 편집, 노이즈 제거는 지원하지 않는다.

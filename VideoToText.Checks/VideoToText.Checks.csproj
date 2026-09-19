@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\VideoToText\VideoToText.csproj" />
+    <ProjectReference Include="..\VideoToText.Avalonia\VideoToText.Avalonia.csproj" />
+    <Reference Include="CommunityToolkit.Mvvm">
+      <HintPath>..\VideoToText.Avalonia\bin\Debug\net8.0\CommunityToolkit.Mvvm.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+
+</Project>

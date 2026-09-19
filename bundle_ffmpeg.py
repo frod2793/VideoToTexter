@@ -1,96 +1,124 @@
-import os
+from argparse import ArgumentParser
+from collections import deque
+from pathlib import Path
+import re
 import shutil
 import subprocess
-import re
 
-# 설정
-APP_NAME = "VideoTexter"
-PROJECT_ROOT = os.getcwd()
-APP_BUNDLE = os.path.join(PROJECT_ROOT, f"VideoToText.Avalonia/Publish/{APP_NAME}.app")
-MACOS_DIR = os.path.join(APP_BUNDLE, "Contents/MacOS")
-LIBS_DIR = os.path.join(MACOS_DIR, "libs")
 
-def get_dependencies(path):
-    """otool -L을 실행하여 의존성 목록을 가져옵니다."""
-    try:
-        output = subprocess.check_output(["otool", "-L", path]).decode("utf-8")
-        deps = []
-        for line in output.split("\n")[1:]:
-            line = line.strip()
-            if not line: continue
-            match = re.match(r"(.*) \(compatibility.*", line)
-            if match:
-                dep_path = match.group(1).strip()
-                # 시스템 라이브러리(/usr/lib, /System)는 제외
-                if not dep_path.startswith("/usr/lib") and not dep_path.startswith("/System"):
-                    deps.append(dep_path)
-        return deps
-    except Exception as e:
-        print(f"Error getting deps for {path}: {e}")
-        return []
+def parse_args():
+    parser = ArgumentParser()
+    parser.add_argument("--app-bundle", type=Path, required=True)
+    parser.add_argument("--ffmpeg", type=Path, required=True)
+    parser.add_argument("--ffprobe", type=Path, required=True)
+    return parser.parse_args()
 
-def fix_paths(binary_path):
-    """바이너리 내의 라이브러리 참조 경로를 수정합니다."""
-    deps = get_dependencies(binary_path)
-    for dep in deps:
-        lib_name = os.path.basename(dep)
-        new_path = f"@executable_path/libs/{lib_name}"
-        subprocess.call(["install_name_tool", "-change", dep, new_path, binary_path])
 
-def bundle_binary(src_path):
-    """바이너리를 복사하고 의존성을 추적하여 복사합니다."""
-    if not os.path.exists(src_path):
-        print(f"Warning: Source not found: {src_path}")
-        return
+def require_file(path: Path) -> Path:
+    resolved = path.expanduser().resolve()
+    if not resolved.is_file():
+        raise FileNotFoundError(f"필수 파일을 찾을 수 없습니다: {resolved}")
+    return resolved
 
-    bin_name = os.path.basename(src_path)
-    target_path = os.path.join(MACOS_DIR, bin_name)
-    print(f"Bundling {bin_name}...")
-    shutil.copy2(src_path, target_path)
-    os.chmod(target_path, 0o755)
 
-    # 의존성 처리 (재귀)
-    process_queue = get_dependencies(src_path)
-    processed_libs = set()
+def get_dependencies(path: Path) -> list[str]:
+    output = subprocess.check_output(["otool", "-L", str(path)], text=True)
+    dependencies = []
+    for line in output.splitlines()[1:]:
+        match = re.match(r"(.*) \(compatibility.*", line.strip())
+        if match:
+            dependency = match.group(1).strip()
+            if not dependency.startswith(("/usr/lib/", "/System/Library/")):
+                dependencies.append(dependency)
+    return dependencies
 
-    while process_queue:
-        dep = process_queue.pop(0)
-        lib_name = os.path.basename(dep)
-        if lib_name in processed_libs: continue
-        
-        lib_src = dep
-        # 심볼릭 링크 처리 (homebrew 특성)
-        if not os.path.exists(lib_src):
-            print(f"Trying to find real path for {lib_src}")
-            # 추가적인 경로 탐색 로직 (필요시)
-            
-        lib_dest = os.path.join(LIBS_DIR, lib_name)
-        print(f"  Copying lib: {lib_name}")
-        shutil.copy2(lib_src, lib_dest)
-        os.chmod(lib_dest, 0o644)
-        
-        # 라이브러리 자체의 id 수정
-        subprocess.call(["install_name_tool", "-id", f"@executable_path/libs/{lib_name}", lib_dest])
-        
-        processed_libs.add(lib_name)
-        # 이 라이브러리의 의존성도 추가
-        new_deps = get_dependencies(lib_src)
-        process_queue.extend(new_deps)
 
-    # 모든 처리가 끝난 후 경로 수정
-    fix_paths(target_path)
-    for lib_name in processed_libs:
-        fix_paths(os.path.join(LIBS_DIR, lib_name))
+def require_dependency(binary_path: Path, dependency: str) -> Path:
+    source = Path(dependency).expanduser()
+    if not source.is_absolute() or not source.is_file():
+        raise FileNotFoundError(
+            f"의존성 파일을 찾을 수 없습니다: {binary_path} -> {dependency}"
+        )
+    return source.resolve()
 
-def main():
-    if not os.path.exists(LIBS_DIR):
-        os.makedirs(LIBS_DIR)
 
-    # 1. FFmpeg & FFprobe 번들링
-    bundle_binary("/opt/homebrew/bin/ffmpeg")
-    bundle_binary("/opt/homebrew/bin/ffprobe")
+def rewrite_paths(binary_path: Path) -> None:
+    for dependency in get_dependencies(binary_path):
+        replacement = f"@executable_path/libs/{Path(dependency).name}"
+        subprocess.run(
+            ["install_name_tool", "-change", dependency, replacement, str(binary_path)],
+            check=True,
+        )
 
-    print("\nBundling complete.")
+
+def copy_binary(source: Path, macos_dir: Path) -> Path:
+    destination = macos_dir / source.name
+    shutil.copy2(source, destination)
+    destination.chmod(0o755)
+    return destination
+
+
+def copy_dependencies(binaries: list[Path], libs_dir: Path) -> list[Path]:
+    queue = deque(
+        (binary, dependency)
+        for binary in binaries
+        for dependency in get_dependencies(binary)
+    )
+    expanded_sources: set[Path] = set()
+    libraries: list[Path] = []
+    names: dict[str, Path] = {}
+
+    while queue:
+        parent, dependency = queue.popleft()
+        library = require_dependency(parent, dependency)
+        library_name = Path(dependency).name
+
+        existing_source = names.get(library_name)
+        if existing_source is not None and existing_source != library:
+            raise RuntimeError(
+                f"동일한 라이브러리 이름이 충돌합니다: {existing_source} / {library}"
+            )
+
+        if existing_source is None:
+            destination_library = libs_dir / library_name
+            shutil.copy2(library, destination_library)
+            destination_library.chmod(0o644)
+            subprocess.run(
+                [
+                    "install_name_tool",
+                    "-id",
+                    f"@executable_path/libs/{library_name}",
+                    str(destination_library),
+                ],
+                check=True,
+            )
+            names[library_name] = library
+            libraries.append(destination_library)
+
+        if library not in expanded_sources:
+            expanded_sources.add(library)
+            queue.extend((library, child) for child in get_dependencies(library))
+
+    return libraries
+
+
+def main() -> None:
+    args = parse_args()
+    app_bundle = args.app_bundle.expanduser().resolve()
+    macos_dir = app_bundle / "Contents" / "MacOS"
+    if not macos_dir.is_dir():
+        raise FileNotFoundError(f"앱 번들의 MacOS 디렉터리를 찾을 수 없습니다: {macos_dir}")
+
+    libs_dir = macos_dir / "libs"
+    libs_dir.mkdir(exist_ok=True)
+    binaries = [require_file(args.ffmpeg), require_file(args.ffprobe)]
+    copied_binaries = [copy_binary(binary, macos_dir) for binary in binaries]
+    copied_libraries = copy_dependencies(binaries, libs_dir)
+
+    for binary in copied_binaries + copied_libraries:
+        rewrite_paths(binary)
+    print("FFmpeg 번들링 완료")
+
 
 if __name__ == "__main__":
     main()

@@ -9,7 +9,8 @@
         Title="비디오 텍스터 - Whisper Converter"
         Background="#1E1E1E"
         TransparencyLevelHint="AcrylicBlur"
-        ExtendClientAreaToDecorationsHint="True">
+        ExtendClientAreaToDecorationsHint="True"
+        Closing="OnWindowClosing">
 
     <Design.DataContext>
         <vm:MainWindowViewModel/>
@@ -28,40 +29,53 @@
 
         <Grid RowDefinitions="Auto, *, Auto" Margin="30">
             <StackPanel Grid.Row="0" Margin="0,0,0,20">
-                <TextBlock Text="비디오 텍스터" 
-                           FontSize="24" FontWeight="Bold" 
+                <TextBlock Text="비디오 텍스터"
+                           FontSize="24" FontWeight="Bold"
                            Foreground="{StaticResource SystemAccentBrush}"
                            LetterSpacing="2"/>
                 <StackPanel Orientation="Horizontal" Spacing="10">
-                    <TextBlock Text="Powered by Whisper.net" 
+                    <TextBlock Text="Powered by Whisper.net"
                                FontSize="12" Opacity="0.5" />
                     <TextBlock Text=" | " FontSize="12" Opacity="0.3"/>
-                    <TextBlock Text="made by woodenshield" 
-                               FontSize="12" Opacity="0.8" 
+                    <TextBlock Text="made by woodenshield"
+                               FontSize="12" Opacity="0.8"
                                Foreground="{StaticResource SystemAccentBrush}"/>
                 </StackPanel>
             </StackPanel>
 
             <Grid Grid.Row="1" RowDefinitions="Auto, Auto, *, Auto" ColumnDefinitions="*, Auto">
-                
+
                 <StackPanel Grid.Row="0" Grid.ColumnSpan="2" Margin="0,0,0,10">
-                    <TextBlock Text="작업 대기열 (Batch Video Queue)" FontSize="10" FontWeight="Bold" Margin="0,0,0,5" Opacity="0.7"/>
+                    <TextBlock Text="미디어 작업 대기열" FontSize="10" FontWeight="Bold" Margin="0,0,0,5" Opacity="0.7"/>
                     <Grid ColumnDefinitions="*, Auto, Auto">
-                        <Button Content="영상 파일 추가..." 
+                        <Button Content="영상·녹음 파일 추가..."
                                 Click="OnBrowseClick"
-                                Padding="15,8" 
-                                Background="{StaticResource SystemAccentBrush}" 
+                                Padding="15,8"
+                                Background="{StaticResource SystemAccentBrush}"
                                 Foreground="Black" FontWeight="Bold"/>
-                        <Button Grid.Column="1" Content="대기열 비우기" 
+                        <Button Grid.Column="1" Content="대기열 비우기"
                                 Command="{Binding ClearJobsCommand}"
-                                Margin="10,0,0,0" 
-                                Background="#444444" 
+                                Margin="10,0,0,0"
+                                Background="#444444"
                                 Foreground="White" FontSize="11"/>
+                    </Grid>
+                    <Grid ColumnDefinitions="*, Auto, Auto, Auto" Margin="0,8,0,0">
+                        <ComboBox ItemsSource="{Binding AudioInputDevices}"
+                                  SelectedItem="{Binding SelectedAudioInputDevice}"
+                                  IsEnabled="{Binding !IsRecording}" />
+                        <Button Grid.Column="1" Content="장치 새로고침"
+                                Command="{Binding RefreshAudioInputDevicesCommand}"
+                                IsEnabled="{Binding !IsRecording}" Margin="5,0" />
+                        <TextBlock Grid.Column="2" Text="{Binding RecordingElapsed}"
+                                   VerticalAlignment="Center" Margin="10,0" />
+                        <Button Grid.Column="3" Content="{Binding RecordingButtonText}"
+                                Command="{Binding ToggleRecordingCommand}"
+                                Background="#D13A55" Foreground="White" />
                     </Grid>
                 </StackPanel>
 
                 <Border Grid.Row="2" Grid.ColumnSpan="2" Background="#151515" CornerRadius="8" Padding="1" Margin="0,10">
-                    <ListBox ItemsSource="{Binding Jobs}" 
+                    <ListBox ItemsSource="{Binding Jobs}"
                              Background="Transparent" BorderThickness="0"
                              ScrollViewer.VerticalScrollBarVisibility="Auto">
                         <ListBox.ItemTemplate>
@@ -72,15 +86,15 @@
                                             <TextBlock Text="{Binding FileName}" FontWeight="SemiBold" FontSize="12" TextTrimming="CharacterEllipsis"/>
                                             <TextBlock Text="{Binding StatusMessage}" FontSize="10" Opacity="0.6"/>
                                         </StackPanel>
-                                    
+
                                         <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="10,0">
-                                            <ProgressBar Height="4" Minimum="0" Maximum="100" Value="{Binding Progress}" 
+                                            <ProgressBar Height="4" Minimum="0" Maximum="100" Value="{Binding Progress}"
                                                          Foreground="{StaticResource SystemAccentBrush}" Background="#333333" CornerRadius="2"/>
                                             <TextBlock Text="{Binding Progress, StringFormat={}{0:F1}%}" FontSize="9" HorizontalAlignment="Right" Opacity="0.8" Margin="0,2,0,0"/>
                                         </StackPanel>
 
                                         <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="5" HorizontalAlignment="Right" VerticalAlignment="Center">
-                                            <Button Content="✕" 
+                                            <Button Content="✕"
                                                     Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).RemoveJobCommand}"
                                                     CommandParameter="{Binding}"
                                                     Background="Transparent" Foreground="#FF4B4B" Padding="5"/>
@@ -94,16 +108,17 @@
 
                 <Grid Grid.Row="1" Grid.ColumnSpan="2" ColumnDefinitions="*, Auto" Margin="0,10">
                     <StackPanel>
-                        <TextBlock Text="출력 및 모델 설정" FontSize="10" FontWeight="Bold" Margin="0,0,0,5" Opacity="0.7"/>
+                        <TextBlock Text="출력 및 모델 설정 (대기열 등록 시점의 설정으로 확정)" FontSize="10" FontWeight="Bold" Margin="0,0,0,5" Opacity="0.7"/>
                         <Grid ColumnDefinitions="*, Auto, Auto, Auto">
-                            <TextBox Text="{Binding OutputPath}" 
-                                     Watermark="저장 경로 (기본: 영상 위치)" 
+                            <TextBox Text="{Binding OutputPath}"
+                                     IsEnabled="{Binding !IsRecording}"
+                                     Watermark="저장 경로 (기본: 원본 파일 위치)"
                                      Padding="8"
                                      Background="#2D2D2D" BorderThickness="0" FontSize="11"
                                      HorizontalAlignment="Stretch"/>
-                            <Button Grid.Column="1" Content="변경" Click="OnBrowseOutputClick" Margin="5,0" FontSize="11"/>
-                            
-                            <ComboBox Grid.Column="2" ItemsSource="{Binding AvailableModels}" 
+                            <Button Grid.Column="1" Content="변경" Click="OnBrowseOutputClick" IsEnabled="{Binding !IsRecording}" Margin="5,0" FontSize="11"/>
+
+                            <ComboBox Grid.Column="2" ItemsSource="{Binding AvailableModels}"
                                       SelectedValue="{Binding SelectedModel}"
                                       SelectedValueBinding="{Binding FileName}"
                                       Width="160" Background="#2D2D2D" BorderThickness="0" FontSize="11">
@@ -114,20 +129,20 @@
                                 </ComboBox.ItemTemplate>
                             </ComboBox>
 
-                            <Button Grid.Column="3" Content="모델 다운로드" 
+                            <Button Grid.Column="3" Content="모델 다운로드"
                                     Command="{Binding DownloadModelCommand}"
                                     IsEnabled="{Binding !IsDownloading}"
                                     Margin="5,0,0,0" FontSize="11"
                                     Background="{StaticResource SystemAccentBrush}" Foreground="Black"/>
                         </Grid>
-                        
+
                         <!-- 모델 다운로드 진행바 -->
                         <StackPanel IsVisible="{Binding IsDownloading}" Margin="0,10,0,0">
                             <TextBlock Text="모델 파일 다운로드 중..." FontSize="10" Opacity="0.8"/>
-                            <ProgressBar Height="4" Minimum="0" Maximum="100" 
-                                         Value="{Binding DownloadProgress}" 
+                            <ProgressBar Height="4" Minimum="0" Maximum="100"
+                                         Value="{Binding DownloadProgress}"
                                          Foreground="#FF00D2" Background="#333333" Margin="0,5"/>
-                            <TextBlock Text="{Binding DownloadProgress, StringFormat={}{0:F1}%}" 
+                            <TextBlock Text="{Binding DownloadProgress, StringFormat={}{0:F1}%}"
                                        FontSize="9" HorizontalAlignment="Right" Opacity="0.8"/>
                         </StackPanel>
                     </StackPanel>
@@ -157,17 +172,17 @@
                         <TextBlock Text="{Binding CurrentJobProgressText}" FontSize="10" Opacity="0.7" Foreground="#00FFD2"/>
                         <TextBlock Grid.Column="1" Text="{Binding EstimatedTimeRemaining}" FontSize="10" Opacity="0.7" Foreground="#FFAA00"/>
                     </Grid>
-                    <ProgressBar Height="4" Value="{Binding TotalProgress}" Minimum="0" Maximum="100" 
+                    <ProgressBar Height="4" Value="{Binding TotalProgress}" Minimum="0" Maximum="100"
                                  Foreground="{StaticResource SystemAccentBrush}" Margin="0,2,0,2"/>
                     <TextBlock Text="{Binding TotalProgressText}" FontSize="10" Opacity="0.7" HorizontalAlignment="Right"/>
                 </StackPanel>
                 <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10">
-                    <Button Command="{Binding StopTranscriptionCommand}" 
+                    <Button Command="{Binding StopTranscriptionCommand}"
                             IsVisible="{Binding IsProcessing}"
-                            Content="일시정지" Padding="20,12" Background="#FF4B4B" Foreground="White" FontWeight="Bold"/>
-                    <Button Command="{Binding StartTranscriptionCommand}" 
+                            Content="일시정지 (현재 작업 후 대기)" Padding="20,12" Background="#FF4B4B" Foreground="White" FontWeight="Bold"/>
+                    <Button Command="{Binding StartTranscriptionCommand}"
                             IsEnabled="{Binding !IsProcessing}"
-                            Content="작업 시작/재개" Padding="30,12" 
+                            Content="작업 시작/재개" Padding="30,12"
                             Background="{StaticResource SystemAccentBrush}" Foreground="Black" FontWeight="Bold"/>
                 </StackPanel>
             </Grid>

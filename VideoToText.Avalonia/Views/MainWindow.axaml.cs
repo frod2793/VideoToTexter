@@ -9,6 +9,9 @@ namespace VideoToText.Avalonia.Views;
 
 public partial class MainWindow : Window
 {
+    private bool m_closeAfterRecordingStops;
+    private bool m_isClosing;
+
     public MainWindow()
     {
         InitializeComponent();
@@ -21,10 +24,10 @@ public partial class MainWindow : Window
 
         var files = await topLevel.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
-            Title = "변환할 영상 파일들 선택",
+            Title = "변환할 영상·녹음 파일 선택",
             AllowMultiple = true,
             FileTypeFilter = new[] { 
-                new FilePickerFileType("미디어 파일") { Patterns = new[] { "*.mp4", "*.mkv", "*.mov", "*.avi", "*.mp3", "*.wav", "*.m4a" } }
+                new FilePickerFileType("미디어 파일") { Patterns = MainWindowViewModel.SupportedMediaPatterns.ToArray() }
             }
         });
 
@@ -62,5 +65,21 @@ public partial class MainWindow : Window
                 vm.Status = "출력 폴더 설정됨: " + vm.OutputPath;
             }
         }
+    }
+
+    private async void OnWindowClosing(object? sender, WindowClosingEventArgs e)
+    {
+        if (m_closeAfterRecordingStops || DataContext is not MainWindowViewModel vm) return;
+        if (m_isClosing)
+        {
+            e.Cancel = true;
+            return;
+        }
+
+        e.Cancel = true;
+        m_isClosing = true;
+        await vm.StopRecordingForShutdownAsync();
+        m_closeAfterRecordingStops = true;
+        Close();
     }
 }

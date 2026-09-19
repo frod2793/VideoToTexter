@@ -13,24 +13,36 @@ namespace VideoToText.Application
     public class JobQueueManager : IJobQueueManager
     {
         private readonly List<TranscriptionJobDTO> m_jobs = new List<TranscriptionJobDTO>();
-        private readonly Func<VideoToTextApp> m_appProvider;
+        private readonly Func<TranscriptionJobDTO, VideoToTextApp> m_appProvider;
         private CancellationTokenSource? m_cts;
         private bool m_isProcessing;
-        private bool m_isPaused;
+        private bool m_isPaused = true;
+        private bool m_lastReportedProcessingState = false;
         private readonly SemaphoreSlim m_signal = new SemaphoreSlim(0);
 
-        public IReadOnlyList<TranscriptionJobDTO> Jobs => m_jobs.AsReadOnly();
+        public IReadOnlyList<TranscriptionJobDTO> Jobs
+        {
+            get
+            {
+                lock (m_jobs)
+                {
+                    return m_jobs.ToList().AsReadOnly();
+                }
+            }
+        }
         public bool IsProcessing => m_isProcessing;
         public bool IsPaused
         {
             get => m_isPaused;
-            set
+            set => m_isPaused = value;
+        }
+
+        private void ReportProcessingState(bool isProcessing)
+        {
+            if (m_lastReportedProcessingState != isProcessing)
             {
-                if (m_isPaused != value)
-                {
-                    m_isPaused = value;
-                    if (!value) m_signal.Release(); // 재개 시 대기 상태를 강제로 깨움
-                }
+                m_lastReportedProcessingState = isProcessing;
+                ProcessingStateChanged?.Invoke(isProcessing);
             }
         }
 
@@ -40,9 +52,14 @@ namespace VideoToText.Application
         public event Action<bool>? ProcessingStateChanged;
         public event Action<TranscriptionJobDTO, TranscriptionResultDTO>? SegmentDetected;
 
-        public JobQueueManager(Func<VideoToTextApp> appProvider)
+        public JobQueueManager(Func<TranscriptionJobDTO, VideoToTextApp> appProvider)
         {
             m_appProvider = appProvider ?? throw new ArgumentNullException(nameof(appProvider));
+        }
+
+        public JobQueueManager(Func<VideoToTextApp> appProvider)
+            : this(job => appProvider != null ? appProvider() : throw new ArgumentNullException(nameof(appProvider)))
+        {
         }
 
         public void AddJob(TranscriptionJobDTO job)
@@ -61,21 +78,28 @@ namespace VideoToText.Application
             lock (m_jobs)
             {
                 job = m_jobs.FirstOrDefault(j => j.Id == jobId);
-                if (job != null) m_jobs.Remove(job);
+                if (job == null || job.Status == JobStatus.Running)
+                {
+                    return; // 실행 중인 작업은 제거 불가
+                }
+                m_jobs.Remove(job);
             }
 
-            // 삭제될 때 신호를 줘서 다시 검사하도록 유도할 수 있지만 굳이 안 줘도 루프는 깨지지 않음
-            if (job != null)
-            {
-                JobRemoved?.Invoke(job);
-            }
+            JobRemoved?.Invoke(job);
         }
 
         public void ClearJobs()
         {
+            List<TranscriptionJobDTO> removedJobs;
             lock (m_jobs)
             {
-                m_jobs.Clear();
+                removedJobs = m_jobs.Where(j => j.Status != JobStatus.Running).ToList();
+                m_jobs.RemoveAll(j => j.Status != JobStatus.Running);
+            }
+
+            foreach (var job in removedJobs)
+            {
+                JobRemoved?.Invoke(job);
             }
         }
 
@@ -96,14 +120,17 @@ namespace VideoToText.Application
 
         public void PauseProcessing()
         {
-            IsPaused = true;
-            ProcessingStateChanged?.Invoke(false);
+            m_isPaused = true;
+            // 실행 중인 작업이 완료된 후 다음 작업 시작을 막으며, IsProcessing을 즉시 끄지 않음
         }
 
         public void ResumeProcessing()
         {
-            IsPaused = false;
-            ProcessingStateChanged?.Invoke(true);
+            if (IsPaused)
+            {
+                IsPaused = false;
+                m_signal.Release();
+            }
         }
 
         public void StopProcessing()
@@ -116,7 +143,6 @@ namespace VideoToText.Application
             if (m_isProcessing) return;
 
             m_isProcessing = true;
-            ProcessingStateChanged?.Invoke(!m_isPaused);
             m_cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
 
             try
@@ -125,7 +151,12 @@ namespace VideoToText.Application
                 {
                     if (m_isPaused)
                     {
-                        await Task.Delay(1000, m_cts.Token);
+                        ReportProcessingState(false);
+                        try
+                        {
+                            await m_signal.WaitAsync(m_cts.Token);
+                        }
+                        catch (OperationCanceledException) { }
                         continue;
                     }
 
@@ -135,8 +166,8 @@ namespace VideoToText.Application
                     lock (m_jobs)
                     {
                         // 1. 현재 실행 가능한 작업 탐색 (Pending 또는 예약시간이 지난 Scheduled)
-                        nextJob = m_jobs.FirstOrDefault(j => 
-                            j.Status == JobStatus.Pending || 
+                        nextJob = m_jobs.FirstOrDefault(j =>
+                            j.Status == JobStatus.Pending ||
                             (j.Status == JobStatus.Scheduled && j.ScheduledTime.HasValue && j.ScheduledTime.Value <= DateTime.Now));
 
                         if (nextJob == null)
@@ -155,13 +186,15 @@ namespace VideoToText.Application
 
                     if (nextJob != null)
                     {
+                        ReportProcessingState(true);
                         await ExecuteJobInternal(nextJob, m_cts.Token);
                     }
                     else
                     {
                         // 3. 작업 대기 로직 (다음 예약 작업이 있다면 그 시간만큼, 없다면 무한 대기)
+                        ReportProcessingState(false);
                         int waitMs = delayUntilNextJob.HasValue ? (int)Math.Max(0, delayUntilNextJob.Value.TotalMilliseconds) : Timeout.Infinite;
-                        
+
                         try
                         {
                             // 세마포어 신호(작업추가, 상태변경, 재개)가 오거나 시간이 다 될 때까지 대기
@@ -174,7 +207,7 @@ namespace VideoToText.Application
             finally
             {
                 m_isProcessing = false;
-                ProcessingStateChanged?.Invoke(false);
+                ReportProcessingState(false);
             }
         }
 
@@ -187,22 +220,22 @@ namespace VideoToText.Application
                 job.StatusMessage = "오디오 추출 및 인식 중...";
                 JobUpdated?.Invoke(job);
 
-                // 지연 초기화된 앱 인스턴스 획득
-                var app = m_appProvider();
+                // 지연 초기화된 앱 인스턴스 획득 (해당 작업의 ModelName 기반)
+                var app = m_appProvider(job);
 
                 await app.RunAsync(
                     job.VideoPath,
                     outputDirectory: job.OutputPath,
-                    onStatusUpdate: (msg) => 
+                    onStatusUpdate: (msg) =>
                     {
                         job.StatusMessage = msg;
                         JobUpdated?.Invoke(job);
                     },
-                    onSegmentDetected: (result) => 
+                    onSegmentDetected: (result) =>
                     {
                         SegmentDetected?.Invoke(job, result);
                     },
-                    onProgressChanged: (p) => 
+                    onProgressChanged: (p) =>
                     {
                         job.Progress = p * 100;
                         JobUpdated?.Invoke(job);
@@ -217,8 +250,6 @@ namespace VideoToText.Application
             }
             catch (OperationCanceledException)
             {
-                // 사용자가 멈추거나 취소했을 때, 중도 취소된 작업도 나중에 재개 가능하도록 Cancelled 대신 일단 Pending으로 반환
-                // (일반적인 큐 개념. 단, 강제 Cancel이면 Cancelled)
                 job.Status = JobStatus.Cancelled;
                 job.StatusMessage = "취소됨";
             }

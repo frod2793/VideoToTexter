@@ -15,23 +15,21 @@ namespace VideoToText.Infrastructure
     {
         public async Task ExportAsync(IEnumerable<TranscriptionResultDTO> results, string outputPath)
         {
-            try
-            {
-                var sb = new StringBuilder();
+            var sb = new StringBuilder();
 
-                foreach (var segment in results)
-                {
-                    // 텍스트 내용만 추가
-                    sb.AppendLine(segment.Text.Trim());
-                }
-
-                await File.WriteAllTextAsync(outputPath, sb.ToString(), Encoding.UTF8);
-                Console.WriteLine($"[텍스트 저장 완료]: {Path.GetFileName(outputPath)}");
-            }
-            catch (Exception ex)
+            foreach (var segment in results)
             {
-                Console.WriteLine($"[텍스트 저장 오류]: {ex.Message}");
+                // 텍스트 내용만 추가
+                sb.AppendLine(segment.Text.Trim());
             }
+
+            // UTF-8로 배타적 생성(기존 파일 덮어쓰기 방지) 저장
+            using (var stream = new FileStream(outputPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 4096, useAsync: true))
+            using (var writer = new StreamWriter(stream, new UTF8Encoding(false)))
+            {
+                await writer.WriteAsync(sb.ToString());
+            }
+            Console.WriteLine($"[텍스트 저장 완료]: {Path.GetFileName(outputPath)}");
         }
     }
 }

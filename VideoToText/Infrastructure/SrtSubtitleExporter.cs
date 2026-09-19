@@ -15,36 +15,33 @@ namespace VideoToText.Infrastructure
     {
         public async Task ExportAsync(IEnumerable<TranscriptionResultDTO> results, string outputPath)
         {
-            try
+            var sb = new StringBuilder();
+            int index = 1;
+
+            foreach (var segment in results)
             {
-                var sb = new StringBuilder();
-                int index = 1;
+                // 1. 인덱스
+                sb.AppendLine(index.ToString());
 
-                foreach (var segment in results)
-                {
-                    // 1. 인덱스
-                    sb.AppendLine(index.ToString());
+                // 2. 타임스탬프 (SRT 규격: hh:mm:ss,fff)
+                string startTime = FormatTime(segment.Start);
+                string endTime = FormatTime(segment.End);
+                sb.AppendLine($"{startTime} --> {endTime}");
 
-                    // 2. 타임스탬프 (SRT 규격: hh:mm:ss,fff)
-                    string startTime = FormatTime(segment.Start);
-                    string endTime = FormatTime(segment.End);
-                    sb.AppendLine($"{startTime} --> {endTime}");
+                // 3. 내용 및 구분줄
+                sb.AppendLine(segment.Text.Trim());
+                sb.AppendLine();
 
-                    // 3. 내용 및 구분줄
-                    sb.AppendLine(segment.Text.Trim());
-                    sb.AppendLine();
-
-                    index++;
-                }
-
-                // UTF-8로 저장
-                await File.WriteAllTextAsync(outputPath, sb.ToString(), Encoding.UTF8);
-                Console.WriteLine($"[자막 저장 완료]: {Path.GetFileName(outputPath)}");
+                index++;
             }
-            catch (Exception ex)
+
+            // UTF-8로 배타적 생성(기존 파일 덮어쓰기 방지) 저장
+            using (var stream = new FileStream(outputPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 4096, useAsync: true))
+            using (var writer = new StreamWriter(stream, new UTF8Encoding(false)))
             {
-                Console.WriteLine($"[자막 저장 오류]: {ex.Message}");
+                await writer.WriteAsync(sb.ToString());
             }
+            Console.WriteLine($"[자막 저장 완료]: {Path.GetFileName(outputPath)}");
         }
 
         /// <summary>

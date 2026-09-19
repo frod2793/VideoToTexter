@@ -29,10 +29,11 @@ namespace VideoToText.Avalonia.ViewModels
         public string FullPath => m_dto.VideoPath;
         public string ModelName => m_dto.ModelName;
         public string? ScheduledTimeText => m_dto.ScheduledTime?.ToString("HH:mm:ss");
-        
+
         public bool IsRunning => Status == JobStatus.Running;
         public bool IsCompleted => Status == JobStatus.Completed;
         public bool IsFailed => Status == JobStatus.Failed;
+        public bool IsCancelled => Status == JobStatus.Cancelled;
         public bool IsPending => Status == JobStatus.Pending;
         public bool IsScheduled => Status == JobStatus.Scheduled;
 
@@ -52,10 +53,11 @@ namespace VideoToText.Avalonia.ViewModels
             StatusMessage = m_dto.StatusMessage;
             Progress = m_dto.Progress;
             Status = m_dto.Status;
-            
+
             OnPropertyChanged(nameof(IsRunning));
             OnPropertyChanged(nameof(IsCompleted));
             OnPropertyChanged(nameof(IsFailed));
+            OnPropertyChanged(nameof(IsCancelled));
             OnPropertyChanged(nameof(IsPending));
             OnPropertyChanged(nameof(ScheduledTimeText));
         }

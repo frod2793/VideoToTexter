@@ -14,9 +14,6 @@ namespace VideoToText.Infrastructure
     {
         private readonly string m_modelPath;
         private WhisperFactory? m_factory;
-        
-        private readonly Queue<string> m_history = new Queue<string>();
-        private const int MAX_HISTORY_COUNT = 5;
 
         public WhisperTranscriptionService(string modelPath)
         {
@@ -38,20 +35,11 @@ namespace VideoToText.Infrastructure
 
             byte[] wavData = await File.ReadAllBytesAsync(audioPath, cancellationToken);
             using var ms = new MemoryStream(wavData);
-            
-            m_history.Clear();
-            
+
             await foreach (var segment in processor.ProcessAsync(ms, cancellationToken))
             {
                 string text = segment.Text?.Trim() ?? string.Empty;
                 if (string.IsNullOrEmpty(text)) continue;
-
-                if (IsRedundant(text))
-                {
-                    continue;
-                }
-
-                UpdateHistory(text);
 
                 yield return new TranscriptionResultDTO
                 {
@@ -60,20 +48,6 @@ namespace VideoToText.Infrastructure
                     End = segment.End,
                     Probability = segment.Probability
                 };
-            }
-        }
-
-        private bool IsRedundant(string text)
-        {
-            return m_history.Contains(text);
-        }
-
-        private void UpdateHistory(string text)
-        {
-            m_history.Enqueue(text);
-            if (m_history.Count > MAX_HISTORY_COUNT)
-            {
-                m_history.Dequeue();
             }
         }
 
